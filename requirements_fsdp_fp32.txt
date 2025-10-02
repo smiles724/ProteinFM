@@ -1,0 +1,12 @@
+
+# Requirements for FP32 FSDP training
+# NOTE: Install PyTorch CUDA wheels from the official index for your CUDA version (example: cu126).
+# Example install (shell):
+#   pip install --index-url https://download.pytorch.org/whl/cu126 #       torch==2.8.0 torchvision==0.23.0 torchaudio==2.8.0
+#
+transformers==4.56.1
+huggingface_hub==0.35.0
+accelerate>=0.33.0
+tqdm>=4.66.0
+safetensors>=0.4.3
+# Add any extra encoder deps here if needed (e.g., numpy, regex).

@@ -1,0 +1,19 @@
+# ===== ProTrek Encoders-only + Foldseek util =====
+# Python >= 3.10 is recommended.
+
+# --- Core ---
+numpy>=1.23
+tqdm>=4.66
+
+# --- PyTorch ---
+# CPU build (works everywhere). If you want GPU/CUDA, install torch separately
+# with the appropriate CUDA index URL after this step.
+torch>=2.0.1,<2.3
+
+# --- Hugging Face stack ---
+# ESM/BERT tokenizers & models
+transformers>=4.38,<5
+huggingface_hub>=0.23
+
+# --- Optional (used in the example notebook for table preview) ---
+pandas>=2.0
