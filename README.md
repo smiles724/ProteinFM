@@ -6,6 +6,9 @@ SwissProtCLAP
 
 [SwissProtCLAP](https://huggingface.co/datasets/chao1224/ProteinDT/tree/main)
 
+We generate 10K CoT and only 7.7K of them have corresponding structures. 
+
+### Data Preprocess
 
 In the data preprocessing folder, there are **four Colab notebooks** that form an end-to-end pipeline from dataset checks to CoT generation, structure tokenization (Foldseek 3Di), and a forward/loss smoke test for understanding model.
 
