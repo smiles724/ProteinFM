@@ -264,5 +264,10 @@ accelerate launch --config_file accelerate_cpu_offload_bf16.yaml train_prefix_qw
 
 ---
 
+starting command: based on python 3.10
 
-
+!nvidia-smi
+%pip -q install --upgrade pip
+%pip install -q --index-url https://download.pytorch.org/whl/cu126 \
+  torch==2.8.0 torchvision==0.23.0 torchaudio==2.8.0
+%pip -q install transformers==4.56.1 huggingface_hub==0.35.0 tqdm safetensors
