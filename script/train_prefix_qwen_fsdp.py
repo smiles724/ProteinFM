@@ -120,7 +120,7 @@ class PadAndMaskCollator:
 
         enc = self.tok.pad(
             {"input_ids": input_ids},
-            padding=True, max_length=self.max_len, return_tensors="pt"
+            padding='max_length', max_length=self.max_len, return_tensors="pt"
         )
         attn = enc.attention_mask
         ids  = enc.input_ids
@@ -315,9 +315,27 @@ class BigProteinQwen(nn.Module):
 # ------------------------
 
 def train(args):
-    accelerator = Accelerator()
+    accelerator = Accelerator(split_batches=False)
     set_seed(args.seed)
-
+    # ---- W&B init (main process only) ----
+    wandb = None
+    if getattr(args, "wandb", False) and accelerator.is_main_process:
+        try:
+            import wandb as _wandb
+            if getattr(args, "wandb_mode", None):
+                os.environ["WANDB_MODE"] = "disabled" if args.wandb_mode=="disabled" else args.wandb_mode
+            _cfg = dict(vars(args))
+            _tags = [t.strip() for t in args.wandb_tags.split(",")] if args.wandb_tags else None
+            _wandb.init(project=args.wandb_project or "bioreasoner",
+                        name=args.wandb_run_name,
+                        entity=args.wandb_entity,
+                        tags=_tags,
+                        config=_cfg)
+            wandb = _wandb
+            print("[wandb] initialized.")
+        except Exception as e:
+            print("[wandb] init failed:", e)
+            wandb = None
     # Tokenizer for collator
     tokenizer = AutoTokenizer.from_pretrained(args.model_name, use_fast=True)
     if tokenizer.pad_token is None:
@@ -356,10 +374,7 @@ def train(args):
     optimizer = torch.optim.AdamW(params, lr=args.lr, weight_decay=args.weight_decay)
 
     # Prepare (activates FSDP/ZeRO/mixed precision per accelerate config)
-    if val_loader:
-        big, optimizer, train_loader, val_loader = accelerator.prepare(big, optimizer, train_loader, val_loader)
-    else:
-        big, optimizer, train_loader = accelerator.prepare(big, optimizer, train_loader)
+    big, optimizer = accelerator.prepare(big, optimizer)
 
     # Steps estimate (placeholder for small runs)
     steps_per_epoch = max(1, 1000 // max(1, args.batch_size))
@@ -394,6 +409,16 @@ def train(args):
             if accelerator.is_main_process and args.log_every and (global_step % args.log_every == 0):
                 dt = time.time() - t0
                 print(f"[epoch {epoch+1}] step {global_step} | loss={out.loss.item():.4f} | {human_time(dt)}")
+            # wandb log
+            if 'wandb' in locals() and wandb is not None:
+                try:
+                    lr_val = scheduler.get_last_lr()[0] if scheduler and scheduler.optimizer.param_groups else None
+                    wandb.log({"train/loss": float(out.loss.item()),
+                               "train/step": int(global_step),
+                               "train/epoch": int(epoch + 1),
+                               "train/lr": float(lr_val) if lr_val is not None else None}, step=int(global_step))
+                except Exception as _e:
+                    print("[wandb] log failed:", _e)
 
             if accelerator.is_main_process and args.save_every and (global_step % args.save_every == 0):
                 save_path = os.path.join(args.save_dir, f"ckpt_step{global_step}.pt")
@@ -411,6 +436,13 @@ def train(args):
                 }
                 torch.save(state, save_path)
                 print("Saved:", save_path)
+                if 'wandb' in locals() and wandb is not None and accelerator.is_main_process:
+                    try:
+                        wandb.log({"ckpt/step": int(global_step)}, step=int(global_step))
+                        # Optionally log the checkpoint file (commented by default):
+                        # wandb.save(save_path)
+                    except Exception as _e:
+                        print("[wandb] ckpt log failed:", _e)
                 accelerator.wait_for_everyone()
 
     if accelerator.is_main_process:
@@ -429,7 +461,19 @@ def train(args):
         }
         torch.save(state, final_path)
         print("Saved FINAL:", final_path)
-    accelerator.wait_for_everyone()
+        if 'wandb' in locals() and wandb is not None and accelerator.is_main_process:
+            try:
+                wandb.summary["final/step"] = int(global_step)
+                wandb.summary["final/epoch"] = int(args.epochs)
+                wandb.summary["final/save_path"] = final_path
+            except Exception as _e:
+                print("[wandb] summary failed:", _e)
+        accelerator.wait_for_everyone()
+        if 'wandb' in locals() and wandb is not None and accelerator.is_main_process:
+            try:
+                wandb.finish()
+            except Exception as _e:
+                print("[wandb] finish failed:", _e)
 
 # ------------------------
 # CLI
@@ -465,6 +509,14 @@ def parse_args():
     p.add_argument("--save-every", type=int, default=0)
     p.add_argument("--log-every", type=int, default=50)
     # Misc
+    # Weights & Biases
+    p.add_argument("--wandb", action="store_true", help="Enable Weights & Biases logging")
+    p.add_argument("--wandb-project", type=str, default=None, help="W&B project name")
+    p.add_argument("--wandb-run-name", type=str, default=None, help="W&B run name")
+    p.add_argument("--wandb-entity", type=str, default=None, help="W&B entity/team")
+    p.add_argument("--wandb-mode", type=str, default=None, choices=["online","offline","disabled",None], help="W&B mode override")
+    p.add_argument("--wandb-tags", type=str, default=None, help="Comma-separated tags")
+
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--dtype", type=str, default="auto", choices=["auto","fp32","fp16","bf16","float32","float16","bfloat16","default"])
     return p.parse_args()
